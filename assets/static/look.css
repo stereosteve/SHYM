@@ -1,0 +1,43 @@
+body {
+  background: rgb(29, 31, 32);
+  color: lightgreen;
+  font-family: sans-serif;
+}
+
+header {
+  margin: 10px;
+  color: white;
+  font-size: 32px;
+  font-weight: 900;
+}
+
+input, textarea {
+  display: block;
+  padding: 10px;
+  border-radius: 5px;
+  background: rgba(124, 183, 222, 0.1);
+  border: 1px solid black;
+  color: white;
+  font-size: 22px;
+  margin: 20px;
+}
+
+button {
+  padding: 10px 20px;
+  background: purple;
+  border: 1px solid black;
+  color: pink;
+}
+
+.track {
+  padding: 25px;
+  margin: 15px;
+  border-radius: 5px;
+  background: rgba(124, 183, 222, 0.1);
+  border: 1px solid black;
+}
+
+a, a:visited {
+  color: white;
+  text-shadow: 2px 2px 0px teal;
+}

@@ -1,7 +1,8 @@
 {
   "scripts": {
-    "dev": "wrangler dev src/index.ts",
-    "deploy": "wrangler deploy --minify src/index.ts"
+    "db": "wrangler d1 execute my-db --local --file=./schema.sql",
+    "dev": "wrangler dev src/index.tsx",
+    "deploy": "wrangler deploy --minify src/index.tsx"
   },
   "dependencies": {
     "hono": "^3.12.6"
