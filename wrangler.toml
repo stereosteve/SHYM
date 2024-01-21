@@ -1,0 +1,24 @@
+name = "tunez"
+compatibility_date = "2023-12-01"
+
+# [vars]
+# MY_VARIABLE = "production_value"
+
+# needed for the site bucket assets thing?
+main = "workers-site/index.js"
+
+[site]
+bucket = "./assets"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "my-bucket"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "my-db"
+database_id = "my-db"
