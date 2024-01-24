@@ -1,9 +1,20 @@
+.flex {
+  display: flex;
+}
+.nowrap {
+  white-space: nowrap;
+}
+
 .secondary {
   color: var(--secondary);
 }
 
-.flex {
+
+.tile-grid {
   display: flex;
+  flex-wrap: wrap;
+  gap: 40px;
+  justify-content: center;
 }
 
 img.sq {
