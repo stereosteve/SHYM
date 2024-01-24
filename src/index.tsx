@@ -6,7 +6,6 @@ import type { R2Bucket, KVNamespace, D1Database } from '@cloudflare/workers-type
 
 type Bindings = {
   BUCKET: R2Bucket
-  KV: KVNamespace
   DB: D1Database
 }
 
@@ -105,9 +104,16 @@ app.post('/upload', async (c, next) => {
 
 app.get('/upload/:key', async (c, next) => {
   const key = c.req.param('key')
-  const got = await c.env.BUCKET.get(key)
-  if (!got) return c.text('not found', 404)
-  return c.body(await got.arrayBuffer())
+  const object = await c.env.BUCKET.get(key)
+  if (!object) return c.notFound()
+  const data = await object.arrayBuffer()
+  const contentType = object.httpMetadata?.contentType ?? ''
+  const maxAge = 60 * 60 * 24 * 30
+
+  return c.body(data, 200, {
+    'Cache-Control': `public, max-age=${maxAge}`,
+    'Content-Type': contentType,
+  })
 })
 
 async function dbInsert(db: D1Database, table: string, data: Record<string, any>) {

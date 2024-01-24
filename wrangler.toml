@@ -10,15 +10,11 @@ main = "workers-site/index.js"
 [site]
 bucket = "./assets"
 
-[[kv_namespaces]]
-binding = "KV"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "my-bucket"
+bucket_name = "tunez-bucket"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "my-db"
-database_id = "my-db"
+database_name = "tunez-db"
+database_id = "7e41cfb5-d695-462e-8048-124be33892a3"
