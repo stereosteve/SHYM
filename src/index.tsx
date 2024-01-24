@@ -1,24 +1,23 @@
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { jsxRenderer, useRequestContext } from 'hono/jsx-renderer'
-
-import type { R2Bucket, KVNamespace, D1Database } from '@cloudflare/workers-types'
+import type { R2Bucket, D1Database } from '@cloudflare/workers-types'
+import { drizzle, DrizzleD1Database } from 'drizzle-orm/d1'
+import * as schema from './schema'
+import { eq } from 'drizzle-orm'
 
 type Bindings = {
   BUCKET: R2Bucket
   DB: D1Database
-}
-
-type TrackRow = {
-  id: string
-  title: string
-  artist_id: string
-  artist_name: string
-  description: string
-  created_at: string
+  DRIZZ: DrizzleD1Database<typeof schema>
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+app.use('*', (c, next) => {
+  c.env.DRIZZ = drizzle(c.env.DB, { schema })
+  return next()
+})
 
 app.get('/static/*', serveStatic({ root: './' }))
 
@@ -26,7 +25,7 @@ app.get(
   '*',
   jsxRenderer(({ children }) => {
     return (
-      <html lang="en">
+      <html lang="en" data-theme="dark">
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -74,17 +73,12 @@ app.get('/about', (c) => {
 })
 
 app.get('/', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `
-    select
-      t.*,
-      a.name as artist_name
-    from tracks t
-    join artists a on t.artist_id = a.id
-    order by created_at desc
-    `
-  ).all()
-  const tracks = results as TrackRow[]
+  const tracks = await c.env.DRIZZ.query.tracks.findMany({
+    with: {
+      artist: true,
+    },
+  })
+
   return c.render(
     <div>
       <div class="tile-grid">
@@ -99,12 +93,31 @@ app.get('/', async (c) => {
   )
 })
 
-const TrackUI = ({ track }: { track: TrackRow }) => (
+app.get('/demo', async (c) => {
+  const db = c.env.DRIZZ
+  const ok = await db.query.tracks.findMany({
+    with: {
+      artist: true,
+    },
+  })
+  return c.json(ok)
+})
+
+app.get('/demo2', async (c) => {
+  const ok = await c.env.DRIZZ.query.artists.findMany({
+    with: {
+      tracks: true,
+    },
+  })
+  return c.json(ok)
+})
+
+const TrackUI = ({ track }: { track: schema.TracksWithArtist }) => (
   <article id={track.id} class="track" onClick={`play('${track.id}')`} style="padding: 20px; margin: 0px;">
     <img class="sq" src={`/upload/img${track.id}`} />
     <hgroup>
       <h3>{track.title}</h3>
-      <p>{track.artist_name}</p>
+      <p>{track.artist.name}</p>
     </hgroup>
     {/* <div>{track.description}</div>
     <div>{new Date(track.created_at).toLocaleDateString()}</div> */}
@@ -149,9 +162,9 @@ app.post('/artists/new', async (c) => {
 
   await Promise.all([
     c.env.BUCKET.put(`img${id}`, image),
-    dbInsert(c.env.DB, 'artists', {
+    c.env.DRIZZ.insert(schema.artists).values({
       id,
-      ...body,
+      ...(body as any), // todo: zod
     }),
   ])
 
@@ -183,12 +196,20 @@ app.get('/artists', async (c) => {
 })
 
 app.get('/artists/:id', async (c) => {
-  const artist = await c.env.DB.prepare('select * from artists where id = ?').bind(c.req.param('id')).first()
+  const artist = await c.env.DRIZZ.query.artists.findFirst({
+    where: eq(schema.artists.id, c.req.param('id')),
+    with: {
+      tracks: true,
+    },
+  })
   if (!artist) return c.text('not found', 404)
   if (c.req.query('json')) return c.json(artist)
   return c.render(
     <div class="container-fluid">
       <h1>{artist.name}</h1>
+      {artist.tracks.map((t) => (
+        <TrackUI track={{ ...t, artist }} />
+      ))}
     </div>
   )
 })
@@ -247,10 +268,15 @@ app.get('/tracks/new', async (c) => {
 
 app.get('/tracks/:id', async (c) => {
   const id = c.req.param('id')
-  const track = await c.env.DB.prepare('select * from tracks where id = ?').bind(id).first()
+  const track = await c.env.DRIZZ.query.tracks.findFirst({
+    where: eq(schema.tracks.id, id),
+    with: {
+      artist: true,
+    },
+  })
   if (!track) return c.text('not found', 404)
   // return c.json(track)
-  return c.render(<TrackUI track={track as TrackRow} />)
+  return c.render(<TrackUI track={track} />)
 })
 
 app.post('/upload', async (c, next) => {
@@ -258,15 +284,20 @@ app.post('/upload', async (c, next) => {
   const body = await c.req.parseBody()
   const song = body['song'] as File
   const image = body['image'] as File
-  await c.env.BUCKET.put(`song${id}`, song)
-  await c.env.BUCKET.put(`img${id}`, image)
 
-  await dbInsert(c.env.DB, 'tracks', {
-    id: id,
-    title: body.title,
-    artist_id: body.artist_id,
-    description: body.description,
-  })
+  // todo: some zod validator
+  const trackData = body as Record<string, string>
+
+  await Promise.all([
+    c.env.BUCKET.put(`song${id}`, song),
+    c.env.BUCKET.put(`img${id}`, image),
+    c.env.DRIZZ.insert(schema.tracks).values({
+      id: id,
+      title: trackData.title,
+      artistId: trackData.artist_id,
+      description: trackData.description,
+    }),
+  ])
 
   return c.redirect('/')
 })
@@ -284,17 +315,5 @@ app.get('/upload/:key', async (c, next) => {
     'Content-Type': contentType,
   })
 })
-
-async function dbInsert(db: D1Database, table: string, data: Record<string, any>) {
-  const fields = Object.keys(data).join(',')
-  const qs = Object.keys(data)
-    .map((f) => '?')
-    .join(',')
-  const stmt = `insert into ${table} (${fields}) values (${qs})`
-  return db
-    .prepare(stmt)
-    .bind(...Object.values(data))
-    .all()
-}
 
 export default app

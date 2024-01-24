@@ -5,6 +5,7 @@
     "deploy": "wrangler deploy --minify src/index.tsx"
   },
   "dependencies": {
+    "drizzle-orm": "^0.29.3",
     "hono": "^3.12.6"
   },
   "devDependencies": {
