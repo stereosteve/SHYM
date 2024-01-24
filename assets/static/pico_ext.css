@@ -1,0 +1,27 @@
+.secondary {
+  color: var(--secondary);
+}
+
+.flex {
+  display: flex;
+}
+
+img.sq {
+  object-fit: cover;
+  width: 300px;
+  height: 300px;
+}
+
+.track hgroup {
+  margin: 0px;
+}
+.track hgroup > *:last-child {
+  margin: 0px;
+}
+.track {
+  border: 2px solid transparent;
+}
+.track.nowPlaying {
+  border: 2px solid darkorchid;
+  background: rgba(0,0,0,0.8);
+}

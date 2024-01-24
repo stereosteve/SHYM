@@ -25,17 +25,23 @@ app.get(
   '*',
   jsxRenderer(({ children }) => {
     return (
-      <html>
+      <html lang="en">
         <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <link rel="stylesheet" href="/static/pico.css" />
+          <link rel="stylesheet" href="/static/pico_ext.css" />
           <title>tunez</title>
-          <link rel="stylesheet" href="/static/look.css" />
         </head>
         <body>
-          <header>
+          <article style="margin-top: 0; padding: 20px; display: flex; gap: 20px;">
             <a href="/">tunez</a>
-          </header>
-          <div>{children}</div>
+            <a href="/track/new">upload</a>
+          </article>
+
+          <div style="padding-bottom: 200px">{children}</div>
         </body>
+        <script src="/static/player.js"></script>
       </html>
     )
   })
@@ -50,33 +56,70 @@ app.get('/', async (c) => {
   const tracks = results as TrackRow[]
   return c.render(
     <div>
-      {tracks.map((t) => (
-        <TrackUI track={t} />
-      ))}
-      <form action="/upload" method="POST" enctype="multipart/form-data">
-        <input type="text" name="title" placeholder="title" required />
-        <input type="text" name="artist" placeholder="artist" required />
-        <textarea name="description"></textarea>
-        <input type="file" name="file" required />
-        <button> submit </button>
-      </form>
+      <div style="display: flex; flex-wrap: wrap; gap: 40px; justify-content: center">
+        {tracks.map((t) => (
+          <TrackUI track={t} />
+        ))}
+      </div>
+      <div style="position: fixed; bottom: 0px; width: 100%; padding: 20px; margin: 0;">
+        <audio style="width: 100%" id="player" controls />
+      </div>
     </div>
   )
 })
 
 const TrackUI = ({ track }: { track: TrackRow }) => (
-  <div class="track">
-    <div style={{ fontSize: 44 }}>
-      <a href={`/track/${track.id}`}>{track.title}</a>
-    </div>
-    <div>{track.artist}</div>
-    <div>{track.description}</div>
-    <div>{new Date(track.created_at).toLocaleDateString()}</div>
-    <div>
-      <audio src={`/upload/${track.id}`} controls />
-    </div>
-  </div>
+  <article id={track.id} class="track" onClick={`play('${track.id}')`} style="padding: 20px; margin: 0px;">
+    <img class="sq" src={`/upload/img${track.id}`} />
+    <hgroup>
+      <h3>{track.title}</h3>
+      <p>{track.artist}</p>
+    </hgroup>
+    {/* <div>{track.description}</div>
+    <div>{new Date(track.created_at).toLocaleDateString()}</div> */}
+  </article>
 )
+
+app.get('/track/new', (c) => {
+  return c.render(
+    <form class="container" action="/upload" method="POST" enctype="multipart/form-data">
+      <article>
+        <header>Upload Track</header>
+
+        <label>
+          Title
+          <input type="text" name="title" placeholder="title" required />
+        </label>
+
+        <label>
+          Artist
+          <input type="text" name="artist" placeholder="artist" required />
+        </label>
+
+        <label>
+          Description <br />
+          <small class="secondary">Describe process, instruments, tools, techniques</small>
+          <textarea name="description"></textarea>
+        </label>
+
+        <div class="grid">
+          <label>
+            Audio
+            <input type="file" name="song" accept="audio/*" required />
+          </label>
+          <label>
+            Image
+            <input type="file" name="image" accept="image/*" required />
+          </label>
+        </div>
+
+        <footer>
+          <button> submit </button>
+        </footer>
+      </article>
+    </form>
+  )
+})
 
 app.get('/track/:id', async (c) => {
   const id = c.req.param('id')
@@ -87,13 +130,15 @@ app.get('/track/:id', async (c) => {
 })
 
 app.post('/upload', async (c, next) => {
-  const key = `track${Date.now()}`
+  const id = `_${Date.now()}`
   const body = await c.req.parseBody()
-  const file = body['file'] as File
-  await c.env.BUCKET.put(key, file)
+  const song = body['song'] as File
+  const image = body['image'] as File
+  await c.env.BUCKET.put(`song${id}`, song)
+  await c.env.BUCKET.put(`img${id}`, image)
 
   await dbInsert(c.env.DB, 'tracks', {
-    id: key,
+    id: id,
     title: body.title,
     artist: body.artist,
     description: body.description,
