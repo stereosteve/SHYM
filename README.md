@@ -1,10 +1,8 @@
 ```
 npm install
-npx wrangler d1 execute tunez-db --local --file=./schema.sql
+npm run db
 npm run dev
 ```
-
-
 
 ```
 npx wrangler r2 bucket create tunez-bucket

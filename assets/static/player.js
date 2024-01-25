@@ -8,14 +8,14 @@ player.addEventListener('ended', function () {
   }
 })
 
-function play(id) {
+function play(id, key) {
   if (nowPlaying == id) {
     player.paused ? player.play() : player.pause()
   } else {
     $('.nowPlaying').map((e) => e.classList.remove('nowPlaying'))
     $(`#${id}`).map((e) => e.classList.add('nowPlaying'))
     nowPlaying = id
-    player.src = `/upload/song${id}`
+    player.src = `/upload/${key}`
     player.play()
   }
 }

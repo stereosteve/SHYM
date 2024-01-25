@@ -4,6 +4,7 @@ import { DrizzleD1Database, drizzle } from 'drizzle-orm/d1'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { jsxRenderer } from 'hono/jsx-renderer'
+import { ulidFactory } from 'ulid-workers'
 import * as schema from './schema'
 
 type Bindings = {
@@ -42,6 +43,10 @@ app.get(
           </article>
 
           <div style="padding-bottom: 200px">{children}</div>
+
+          <div style="position: fixed; bottom: 0px; width: 100%; padding: 0 20px 15px 20px;">
+            <audio style="width: 100%" id="player" controls />
+          </div>
         </body>
         <script src="/static/player.js"></script>
       </html>
@@ -59,14 +64,14 @@ app.get('/about', (c) => {
         <br />
         <ul>
           <li>img resize in prod</li>
-          <li>explicit img / song url (for cache busting)</li>
           <li>some client side routing</li>
           <li>more fancy client side player...</li>
           <li>playlists</li>
           <li>album releases</li>
           <li>rss feed</li>
-          <li>can edit artist / track</li>
-          <li>maybe some drizzle?</li>
+          <li>zod validator stuff</li>
+          <li>edit supports all fields + delete</li>
+          <li>login oauth</li>
         </ul>
       </p>
     </div>
@@ -92,23 +97,22 @@ app.get('/', async (c) => {
           <TrackUI track={t} />
         ))}
       </div>
-      <div style="position: fixed; bottom: 0px; width: 100%; padding: 20px;">
-        <audio style="width: 100%" id="player" controls />
-      </div>
     </div>
   )
 })
 
 const TrackUI = ({ track }: { track: schema.TracksWithArtist }) => (
-  <article id={track.id} class="track" onClick={`play('${track.id}')`} style="padding: 20px; margin: 0px;">
-    <img class="sq" src={`/upload/img${track.id}`} />
+  <article
+    id={track.id}
+    class="track"
+    onClick={`play('${track.id}', '${track.audioKey}')`}
+    style="padding: 20px; margin: 0px;"
+  >
+    <img class="sq" src={`/upload/${track.imageKey}`} />
     <hgroup>
       <h3>{track.title}</h3>
       <p>{track.artist.name}</p>
     </hgroup>
-    {/* <div>{track.description}</div>
-    <div>{new Date(track.created_at).toLocaleDateString()}</div> */}
-
     <div class="onHover">
       <a href={`/tracks/${track.id}`}>View</a>
       <a href={`/tracks/${track.id}/edit`}>Edit</a>
@@ -116,14 +120,20 @@ const TrackUI = ({ track }: { track: schema.TracksWithArtist }) => (
   </article>
 )
 
-const TrackForm = ({ track, artists }: { track?: typeof schema.tracks.$inferInsert; artists: (typeof schema.artists.$inferSelect)[] }) => (
+const TrackForm = ({
+  track,
+  artists,
+}: {
+  track?: typeof schema.tracks.$inferInsert
+  artists: (typeof schema.artists.$inferSelect)[]
+}) => (
   <form class="container" method="POST" enctype="multipart/form-data">
     <input type="hidden" name="id" value={track?.id} />
     <article>
       <header>
         <label>Artist</label>
         <fieldset style="display: flex;">
-          <select name="artist_id" required style="margin-bottom: 0px;">
+          <select name="artistId" required style="margin-bottom: 0px;">
             <option value="" selected={!track?.artistId}>
               - Select Artist -
             </option>
@@ -147,13 +157,13 @@ const TrackForm = ({ track, artists }: { track?: typeof schema.tracks.$inferInse
       <label>
         Description <br />
         <small class="secondary">Describe process, instruments, tools, techniques</small>
-        <textarea name="description"></textarea>
+        <textarea name="description">{track?.description}</textarea>
       </label>
 
       <div class="grid">
         <label>
           Audio
-          <input type="file" name="song" accept="audio/*" required={!track} />
+          <input type="file" name="audio" accept="audio/*" required={!track} />
         </label>
         <label>
           Image
@@ -174,21 +184,25 @@ app.get('/tracks/new', async (c) => {
 })
 
 app.post('/tracks/new', async (c, next) => {
-  const id = `_${Date.now()}`
+  const id = ulid('t')
   const body = await c.req.parseBody()
-  const song = body['song'] as File
-  const image = body['image'] as File
+  const { audio, image } = body as Record<string, File>
+
+  const audioKey = ulid()
+  const imageKey = ulid()
 
   // todo: some zod validator
   const trackData = body as Record<string, string>
 
   await Promise.all([
-    c.env.BUCKET.put(`song${id}`, song),
-    c.env.BUCKET.put(`img${id}`, image),
+    c.env.BUCKET.put(audioKey, audio),
+    c.env.BUCKET.put(imageKey, image),
     c.env.DRIZZ.insert(schema.tracks).values({
       id: id,
+      imageKey,
+      audioKey,
       title: trackData.title,
-      artistId: trackData.artist_id,
+      artistId: trackData.artistId,
       description: trackData.description,
     }),
   ])
@@ -205,7 +219,7 @@ app.get('/tracks/:id', async (c) => {
     },
   })
   if (!track) return c.text('not found', 404)
-  // return c.json(track)
+  if (c.req.query('json')) return c.json(track)
   return c.render(<TrackUI track={track} />)
 })
 
@@ -218,30 +232,31 @@ app.get('/tracks/:id/edit', async (c) => {
 })
 
 app.post('/tracks/:id/edit', async (c) => {
-  const body = await c.req.parseBody()
+  const { id, image, audio, title, description } = await c.req.parseBody()
+
+  const updates: Record<string, any> = { title, description }
 
   const work = []
-  if (body.image) {
-    work.push(c.env.BUCKET.put(`img${body.id}`, body.image as File))
+  if (image) {
+    updates.imageKey = ulid()
+    work.push(c.env.BUCKET.put(updates.imageKey, image as File))
   }
 
-  if (body.song) {
-    work.push(c.env.BUCKET.put(`song${body.id}`, body.song as File))
+  if (audio) {
+    updates.audioKey = ulid()
+    work.push(c.env.BUCKET.put(updates.audioKey, audio as File))
   }
 
   // todo: zod stuff
-  const data = body as Record<string, string>
   work.push(
     c.env.DRIZZ.update(schema.tracks)
-      .set({
-        title: data.title,
-      })
-      .where(eq(schema.tracks.id, data.id))
+      .set(updates)
+      .where(eq(schema.tracks.id, id as string))
   )
 
   await Promise.all(work)
 
-  return c.redirect(`/tracks/${body.id}`)
+  return c.redirect(`/tracks/${id}`)
 })
 
 app.get('/upload/:key', async (c, next) => {
@@ -268,18 +283,18 @@ app.get('/artists/new', async (c) => {
 })
 
 app.post('/artists/new', async (c) => {
-  const id = `A${Date.now()}`
+  const id = ulid('a')
   const body = await c.req.parseBody()
 
   const image = body.image as File
   delete body.image
 
+  body.id = id
+  body.imageKey = id
+
   await Promise.all([
-    c.env.BUCKET.put(`img${id}`, image),
-    c.env.DRIZZ.insert(schema.artists).values({
-      id,
-      ...(body as any), // todo: zod
-    }),
+    c.env.BUCKET.put(body.imageKey, image),
+    c.env.DRIZZ.insert(schema.artists).values(body as any),
   ])
 
   // hacky wizard stuff...
@@ -287,16 +302,16 @@ app.post('/artists/new', async (c) => {
 })
 
 app.get('/artists', async (c) => {
-  const { results } = await c.env.DB.prepare('select * from artists').all()
-  if (c.req.query('json')) return c.json(results)
+  const artists = await c.env.DRIZZ.query.artists.findMany({ orderBy: desc(schema.artists.id) })
+  if (c.req.query('json')) return c.json(artists)
   return c.render(
     <div class="container-fluid">
       <h1>Artists</h1>
       <div class="tile-grid">
-        {results.map((a) => (
+        {artists.map((a) => (
           <article>
             <a href={`/artists/${a.id}`}>
-              <img class="sq" src={`/upload/img${a.id}`} />
+              <img class="sq" src={`/upload/${a.imageKey}`} />
               <hgroup>
                 <h2>{a.name}</h2>
                 <p>{a.location}</p>
@@ -320,6 +335,7 @@ app.get('/artists/:id', async (c) => {
   if (c.req.query('json')) return c.json(artist)
   return c.render(
     <div class="container-fluid">
+      <img class="sq" src={`/upload/${artist.imageKey}`} />
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <h1 style="flex-grow: 1; margin-bottom: 0">{artist.name}</h1>
         <a href={`/artists/${artist.id}/edit`}>edit</a>
@@ -341,23 +357,24 @@ app.get('/artists/:id/edit', async (c) => {
 })
 
 app.post('/artists/:id/edit', async (c) => {
-  const body = await c.req.parseBody()
-
-  const image = body.image as File
-  if (image) {
-    await c.env.BUCKET.put(`img${body.id}`, image)
-  }
+  const { id, name, image, location } = await c.req.parseBody()
 
   // todo: zod stuff
-  const data = body as Record<string, string>
+  const updates: Record<string, any> = {
+    name,
+    location,
+  }
+
+  if (image) {
+    updates.imageKey = ulid()
+    await c.env.BUCKET.put(updates.imageKey, image as File)
+  }
 
   await c.env.DRIZZ.update(schema.artists)
-    .set({
-      name: data.name,
-    })
-    .where(eq(schema.artists.id, body.id as string))
+    .set(updates)
+    .where(eq(schema.artists.id, id as string))
 
-  return c.redirect(`/artists/${body.id}`)
+  return c.redirect(`/artists/${id}`)
 })
 
 function ArtistForm({ artist }: { artist?: typeof schema.artists.$inferInsert }) {
@@ -411,5 +428,14 @@ app.get('/api/artists', async (c) => {
   })
   return c.json(ok)
 })
+
+//
+// helpers
+//
+
+const rawUlid = ulidFactory()
+function ulid(prefix?: string) {
+  return (prefix ?? '_') + rawUlid()
+}
 
 export default app
