@@ -9,6 +9,7 @@ todo:
 * rss feed
 * artist profile
 * album releases
+* non-cloudflare hosting
 
 
 ## dev
